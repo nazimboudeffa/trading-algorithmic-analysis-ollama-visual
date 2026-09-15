@@ -169,15 +169,25 @@ class MainWindow(QMainWindow):
 
     def _build_ai_tab(self):
         v = QVBoxLayout(self.ai_tab)
+        v.setContentsMargins(0, 0, 0, 0)
+
         hint = QLabel("Envoie le signal YAML à Ollama (modèle gemma4) pour une analyse Price Action "
                       "en langage naturel.\nAssurez-vous que Ollama tourne : `ollama serve`.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #8c96aa;")
         v.addWidget(hint)
+
+        frame = QFrame()
+        frame.setStyleSheet("QFrame { border: 1px solid #2a3242; border-radius: 6px; }")
+        fv = QVBoxLayout(frame)
+        fv.setContentsMargins(6, 6, 6, 6)
         self.ai_editor = QPlainTextEdit()
         self.ai_editor.setReadOnly(True)
+        self.ai_editor.setFrameShape(QFrame.NoFrame)
         self.ai_editor.setPlaceholderText("Le rapport de l'analyse IA apparaîtra ici.")
-        v.addWidget(self.ai_editor, 1)
+        fv.addWidget(self.ai_editor, 1)
+        v.addWidget(frame, 1)
+
         self.btn_ai_in_tab = QPushButton("Générer l'analyse IA")
         self.btn_ai_in_tab.setEnabled(False)
         self.btn_ai_in_tab.clicked.connect(self._run_ai)
@@ -292,7 +302,7 @@ class MainWindow(QMainWindow):
         r = self.result
         pip = pip_size(r["symbol"])
         dec = 3 if "JPY" in r["symbol"] else 5
-        pf = "0.0" + "0" * (dec - 1)
+        pf = f".{dec}f"
 
         # --- Synthèse
         s = r["score"]

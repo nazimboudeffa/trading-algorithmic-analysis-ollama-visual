@@ -6,6 +6,7 @@ Produit un dictionnaire de resultat consomme par l'interface graphique
 (app.py) et genera le signal YAML envoye a l'IA (Ollama).
 """
 import json
+import re
 
 import numpy as np
 import pandas as pd
@@ -532,6 +533,28 @@ def compute_signal(r):
     }
 
 
+def _expand_scientific(text):
+    """Réécrit les nombres en notation scientifique (ex. 1e+00) en notation décimale."""
+    if not text:
+        return text
+
+    def repl(m):
+        try:
+            value = float(m.group(0))
+        except ValueError:
+            return m.group(0)
+        s = f"{value:f}"
+        if "." in s:
+            s = s.rstrip("0").rstrip(".")
+        return s or "0"
+
+    return re.sub(
+        r"(?<![0-9A-Za-z_.])([0-9]+(?:\.[0-9]+)?)[eE]([+-]?[0-9]+)(?![0-9A-Za-z_.])",
+        repl,
+        text,
+    )
+
+
 def ask_ai(yaml_text):
     """Envoie le signal YAML a Ollama (prompt du notebook 04)."""
     prompt = f"""Tu es un trader professionnel spécialisé en Price Action Forex.
@@ -613,6 +636,10 @@ Si aucune configuration claire n'existe :
 
 Répondre HOLD.
 
+Tous les prix et nombres (Entrée, SL, TP, RR, niveaux) doivent être écrits
+en notation décimale standard (exemple : 1.15433, 0.00032), jamais en
+notation scientifique (exemple : 1e+00).
+
 Format de réponse :
 
 ## Analyse Price Action
@@ -650,7 +677,7 @@ Données (YAML)
         )
         r.raise_for_status()
         text = r.json().get("response", "").strip()
-        return text if text else None
+        return _expand_scientific(text) if text else None
     except requests.exceptions.ConnectionError:
         return f"[Ollama injoignable sur {OLLAMA_URL}. Lance 'ollama serve'.]"
     except Exception as e:
