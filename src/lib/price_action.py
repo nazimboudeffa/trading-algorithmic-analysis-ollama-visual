@@ -239,12 +239,16 @@ def analyze_pair(
     tfs=None,
     data=None,
     verbose=True,
+    compute_signal=True,
     ask_llm=False,
 ):
-    """Pipeline complet du notebook 04.
+    """Analyse de marche multi-timeframe.
 
     Retourne un dict contenant toutes les donnees (donnees, indicateurs,
-    niveaux, signal YAML, score, zones d'entree...) utilisees par le GUI.
+    niveaux, zones...) utilisees par le GUI et le graphique.
+
+    compute_signal=False : analyse seulement le graphique (pas de signal,
+    pas de YAML) — le signal peut etre calcule ensuite via compute_signal().
     Si ask_llm=True, appelle Ollama et renvoie le rapport (affiche intra logiciel).
     """
     from .config import FULL_NAMES
@@ -312,6 +316,67 @@ def analyze_pair(
 
     price = float(data["M15"]["Close"].iloc[-1])
     near_s, near_r = nearest_levels(levels["M15"], price)
+
+    result = {
+        "symbol": symbol,
+        "full_name": full_name,
+        "tfs": tfs,
+        "data": data,
+        "indicators": indicators,
+        "structure": structure,
+        "levels": levels,
+        "trend": trend,
+        "ema_data": ema_data,
+        "volume_info": volume_info,
+        "volatility": volatility,
+        "patterns": patterns,
+        "bullish_ob": bullish_ob,
+        "bearish_ob": bearish_ob,
+        "ob_overlap": ob_overlap,
+        "fvg_bullish": fvg_bullish,
+        "fvg_bearish": fvg_bearish,
+        "zones": zones,
+        "liquidity": liquidity,
+        "price": price,
+        "near_s": near_s,
+        "near_r": near_r,
+        "entry": None,
+        "stop_loss": None,
+        "take_profit": None,
+    }
+
+    if compute_signal:
+        result.update(compute_signal(result))
+    if ask_llm and compute_signal:
+        result["ai_report_text"] = ask_ai(result["yaml_text"])
+
+    return result
+
+
+def compute_signal(r):
+    """Calcule le signal (facteurs, score, entree/SL/TP, zones, signal YAML)
+    a partir d'une analyse de marche produite par analyze_pair(..., compute_signal=False).
+
+    Retourne un dict a fusionner dans le resultat : score, entry, stop_loss,
+    take_profit, buy_zone, sell_zone, signal_yaml, yaml_text.
+    """
+    symbol = r["symbol"]
+    full_name = r["full_name"]
+    tfs = r["tfs"]
+    indicators = r["indicators"]
+    structure = r["structure"]
+    trend = r["trend"]
+    ema_data = r["ema_data"]
+    patterns = r["patterns"]
+    bullish_ob = r["bullish_ob"]
+    bearish_ob = r["bearish_ob"]
+    ob_overlap = r["ob_overlap"]
+    fvg_bullish = r["fvg_bullish"]
+    fvg_bearish = r["fvg_bearish"]
+    liquidity = r["liquidity"]
+    price = r["price"]
+    near_s = r["near_s"]
+    near_r = r["near_r"]
 
     factors = []
     if ema_data["Daily"]["alignment"] == "Bearish":
@@ -444,29 +509,7 @@ def analyze_pair(
         "candlestick": {"patterns": {"recent": patterns, "timeframe": "M15"}},
     }
 
-    result = {
-        "symbol": symbol,
-        "full_name": full_name,
-        "tfs": tfs,
-        "data": data,
-        "indicators": indicators,
-        "structure": structure,
-        "levels": levels,
-        "trend": trend,
-        "ema_data": ema_data,
-        "volume_info": volume_info,
-        "volatility": volatility,
-        "patterns": patterns,
-        "bullish_ob": bullish_ob,
-        "bearish_ob": bearish_ob,
-        "ob_overlap": ob_overlap,
-        "fvg_bullish": fvg_bullish,
-        "fvg_bearish": fvg_bearish,
-        "zones": zones,
-        "liquidity": liquidity,
-        "price": price,
-        "near_s": near_s,
-        "near_r": near_r,
+    return {
         "score": {
             "direction": direction,
             "strength": strength,
@@ -487,11 +530,6 @@ def analyze_pair(
         "signal_yaml": signal_yaml,
         "yaml_text": yaml.dump(signal_yaml, sort_keys=False, allow_unicode=True, default_flow_style=False),
     }
-
-    if ask_llm:
-        result["ai_report_text"] = ask_ai(result["yaml_text"])
-
-    return result
 
 
 def ask_ai(yaml_text):

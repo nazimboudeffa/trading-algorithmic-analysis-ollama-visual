@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QFrame, QSizePolicy,
 )
 
-from lib.price_action import analyze_pair, ask_ai, DEFAULT_TFS, pip_size
+from lib.price_action import analyze_pair, compute_signal, ask_ai, DEFAULT_TFS, pip_size
 from lib.config import PAIRES
 from chart_widget import CandleChart
 
@@ -49,7 +49,7 @@ class AnalysisWorker(QThread):
     def run(self):
         try:
             self.step.emit("Téléchargement et analyse des données…")
-            result = analyze_pair(self.symbol, self.full_name, self.tfs, verbose=True)
+            result = analyze_pair(self.symbol, self.full_name, self.tfs, verbose=True, compute_signal=False)
             self.done.emit(result, None)
         except Exception as e:
             self.done.emit(None, str(e))
@@ -117,10 +117,6 @@ class MainWindow(QMainWindow):
         self.btn_analyze.clicked.connect(self._run_analysis)
         toolbar.addWidget(self.btn_analyze)
 
-        self.btn_ai = QPushButton("Analyse IA (Ollama)")
-        self.btn_ai.setEnabled(False)
-        self.btn_ai.clicked.connect(self._run_ai)
-        toolbar.addWidget(self.btn_ai)
         root.addLayout(toolbar)
 
         # Contenu principal
@@ -163,6 +159,7 @@ class MainWindow(QMainWindow):
         root.addWidget(self.status)
 
         self.setCentralWidget(central)
+        self.refresh_signal_tab()
 
     def _label(self, text, bold=False):
         lbl = QLabel(text)
@@ -195,7 +192,6 @@ class MainWindow(QMainWindow):
             return
         symbol = self._selected_pair()
         self.btn_analyze.setEnabled(False)
-        self.btn_ai.setEnabled(False)
         self.btn_ai_in_tab.setEnabled(False)
         self.status.setText(f"Analyse de {symbol}…")
         self._worker = AnalysisWorker(symbol, self._full_name(symbol), DEFAULT_TFS)
@@ -213,19 +209,29 @@ class MainWindow(QMainWindow):
         self.chart.set_result(result)
         self._refresh_header()
         self.refresh_signal_tab()
-        self.btn_ai.setEnabled(True)
+        self.btn_ai_in_tab.setEnabled(False)
+        self.ai_editor.clear()
+        self.status.setText(
+            f"{result['symbol']} analysé — graphique prêt. Cliquez sur « Générer le signal ».")
+
+    def _generate_signal(self):
+        if not self.result or "score" in self.result:
+            return
+        self.status.setText("Génération du signal…")
+        self.result.update(compute_signal(self.result))
+        self.chart.set_result(self.result)
         self.btn_ai_in_tab.setEnabled(True)
         self.ai_editor.clear()
-        s = result["score"]
+        self.refresh_signal_tab()
+        s = self.result["score"]
         self.status.setText(
-            f"{result['symbol']} analysé — Signal {s['direction']} (confiance {s['confidence']}%)")
+            f"Signal {s['direction']} (confiance {s['confidence']}%) — {self.result['symbol']}")
 
     def _run_ai(self):
-        if not self.result:
+        if not self.result or "yaml_text" not in self.result:
             return
         if self._ai_worker and self._ai_worker.isRunning():
             return
-        self.btn_ai.setEnabled(False)
         self.btn_ai_in_tab.setEnabled(False)
         self.status.setText("Appel à Ollama… (cela peut prendre ~30 s)")
         self.ai_editor.setPlainText("Analyse IA en cours. Veuillez patienter…")
@@ -234,7 +240,6 @@ class MainWindow(QMainWindow):
         self._ai_worker.start()
 
     def _on_ai_done(self, text, error):
-        self.btn_ai.setEnabled(True)
         self.btn_ai_in_tab.setEnabled(True)
         self.tabs.setCurrentIndex(1)
         if error:
@@ -262,13 +267,28 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------- panneau signal
     def refresh_signal_tab(self):
-        r = self.result
+        container = QWidget()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         body = QWidget()
         lay = QVBoxLayout(body)
         lay.setSpacing(6)
 
+        has_data = self.result is not None
+        has_signal = has_data and "score" in self.result
+
+        if not has_signal:
+            hint = QLabel("Analysez le graphique avec le bouton « Analyser », puis cliquez sur "
+                          "« Générer le signal » pour obtenir la synthèse multi-timeframe, "
+                          "les zones d'entrée et le signal YAML.")
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color: #8c96aa;")
+            lay.addWidget(hint)
+            lay.addStretch(1)
+            self._finish_signal_tab(container, scroll)
+            return
+
+        r = self.result
         pip = pip_size(r["symbol"])
         dec = 3 if "JPY" in r["symbol"] else 5
         pf = "0.0" + "0" * (dec - 1)
@@ -382,7 +402,35 @@ class MainWindow(QMainWindow):
             lay.addWidget(QLabel("Aucun pattern détecté sur les 10 dernières bougies M15."))
 
         lay.addStretch(1)
-        scroll.setWidget(body)
+        self._finish_signal_tab(container, scroll)
+
+    def _finish_signal_tab(self, container, scroll):
+        v = QVBoxLayout(container)
+        v.setContentsMargins(0, 0, 0, 0)
+
+        hint = QLabel("Synthèse du signal multi-timeframe : score, confluence, zones d'entrée, "
+                      "supports/résistances, liquidité et signal YAML.\n"
+                      "Générez le signal après avoir analysé le graphique avec « Analyser ».")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #8c96aa;")
+        v.addWidget(hint)
+
+        frame = QFrame()
+        frame.setStyleSheet("QFrame { border: 1px solid #2a3242; border-radius: 6px; }")
+        fv = QVBoxLayout(frame)
+        fv.setContentsMargins(6, 6, 6, 6)
+        fv.addWidget(scroll)
+        v.addWidget(frame, 1)
+
+        has_data = self.result is not None
+        has_signal = has_data and "score" in self.result
+        self.btn_signal = QPushButton("Générer le signal")
+        self.btn_signal.setEnabled(has_data and not has_signal)
+        self.btn_signal.clicked.connect(self._generate_signal)
+        v.addWidget(self.btn_signal)
+        self._replace_signal_tab(container)
+
+    def _replace_signal_tab(self, scroll):
         old = self.signal_tab
         self.tabs.removeTab(0)
         self.tabs.insertTab(0, scroll, "Signal")
