@@ -285,6 +285,7 @@ class MainWindow(QMainWindow):
             hint.setStyleSheet("color: #8c96aa;")
             lay.addWidget(hint)
             lay.addStretch(1)
+            scroll.setWidget(body)
             self._finish_signal_tab(container, scroll)
             return
 
@@ -402,6 +403,7 @@ class MainWindow(QMainWindow):
             lay.addWidget(QLabel("Aucun pattern détecté sur les 10 dernières bougies M15."))
 
         lay.addStretch(1)
+        scroll.setWidget(body)
         self._finish_signal_tab(container, scroll)
 
     def _finish_signal_tab(self, container, scroll):
@@ -431,9 +433,11 @@ class MainWindow(QMainWindow):
         self._replace_signal_tab(container)
 
     def _replace_signal_tab(self, scroll):
+        current = self.tabs.currentIndex()
         old = self.signal_tab
         self.tabs.removeTab(0)
         self.tabs.insertTab(0, scroll, "Signal")
+        self.tabs.setCurrentIndex(current)
         old.deleteLater()
 
     def _section(self, title):
