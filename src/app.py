@@ -445,10 +445,15 @@ class MainWindow(QMainWindow):
     def _replace_signal_tab(self, scroll):
         current = self.tabs.currentIndex()
         old = self.signal_tab
+        self.signal_tab = scroll
         self.tabs.removeTab(0)
         self.tabs.insertTab(0, scroll, "Signal")
         self.tabs.setCurrentIndex(current)
-        old.deleteLater()
+        if old is not None:
+            try:
+                old.deleteLater()
+            except RuntimeError:
+                pass  # objet C++ déjà supprimé — plus rien à libérer
 
     def _section(self, title):
         lbl = QLabel(title)
